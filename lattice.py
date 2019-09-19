@@ -5,6 +5,7 @@ from scipy.optimize import minimize
 
 class WSe:
 
+    ################ INIT ##################################
     def __init__(self, L, k, d=1, x0=0, periodic=False):
         self.L  = L
         self.k  = k
@@ -23,7 +24,12 @@ class WSe:
         self.W_list  = np.array([     i*b1 + j*b2 for j in range(L) for i in range(L)])
         self.Se_list = np.array([a1 + i*b1 + j*b2 for j in range(L) for i in range(L)])
 
+        self.W_orig_list  = np.copy(self.W_list)
+        self.Se_orig_list = np.copy(self.Se_list)
+    ########################################################
 
+
+    ################ PLOTTING ##############################
     def plot_lattice(self, title='', fig=None, all=False):
         if not fig:
             fig = plt.figure()
@@ -59,6 +65,8 @@ class WSe:
             ax.scatter(W_list[:,0], W_list[:,1], color=c)
         if len(Se_list) > 0:
             ax.scatter(Se_list[:,0], Se_list[:,1], color=c)
+
+    ########################################################
 
     def _nb_W_edge_cases(self, idx, nb):
         (i,j) = self.idx_to_ij(idx)
@@ -103,6 +111,11 @@ class WSe:
 
     def ij_to_idx(self, i, j):
         return self.L*j + i
+
+    def get_position(self, idx):
+        atom_list = self.W_list if idx < self.N else self.Se_list
+        return atom_list[idx%self.N]
+
 
     def U_ij(self, i, j):
         '''
@@ -150,9 +163,6 @@ class WSe:
 
         return minimize(U, x0, jac=gradU).x
 
-    def get_position(self, idx):
-        atom_list = self.W_list if idx < self.N else self.Se_list
-        return atom_list[idx%self.N]
 
     def move_atom(self, idx, x):
         atom_list = self.W_list if idx < self.N else self.Se_list
@@ -174,3 +184,46 @@ class WSe:
 
     def remove_atom(self, idx):
         self.remove_list.append(idx)
+
+    def get_XY_list(self):
+        W_X, W_Y   = list(zip(*self.W_orig_list))
+        Se_X, Se_Y = list(zip(*self.Se_orig_list))
+
+        return W_X + Se_X,  W_Y + Se_Y
+
+    def get_displacement_field(self, mean_sub = False):
+        W_diff_list  = self.W_list  - self.W_orig_list
+        Se_diff_list = self.Se_list - self.Se_orig_list
+
+        Dx = np.concatenate((W_diff_list[:,0], Se_diff_list[:,0]))
+        Dy = np.concatenate((W_diff_list[:,1], Se_diff_list[:,1]))
+
+        if mean_sub:
+            Dx -= np.mean(Dx)
+            Dy -= np.mean(Dy)
+
+        return Dx, Dy
+
+    def get_strain_fields(self, mean_sub=False):
+        d, L = self.d, self.L
+        dx = d/32.
+        xi = np.arange(-d*cos(pi/6)*L, 2*d*cos(pi/6)*L, dx)
+        yi = np.arange(0, d*(1+sin(pi/6))*L, dx)
+        xi,yi = np.meshgrid(xi,yi)
+
+        x, y = get_XY_list()
+        Dx, Dy = self.get_displacement_field(mean_sub)
+
+        Dxi = griddata((x,y),Dx,(xi,yi),method='cubic')
+        Dyi = griddata((x,y),Dy,(xi,yi),method='cubic')
+
+        Dxi[np.isnan(Dxi)] = 0
+        Dyi[np.isnan(Dyi)] = 0
+
+        Dxi = gaussian_filter(Dxi, .5*L.d/dx)
+        Dyi = gaussian_filter(Dyi, .5*L.d/dx)
+
+        exxi = np.gradient(Dxi, dx)[1]
+        eyyi = np.gradient(Dyi, dx)[0]
+
+        return xi, yi, exxi, eyyi
